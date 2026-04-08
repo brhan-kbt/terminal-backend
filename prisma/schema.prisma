@@ -1,0 +1,146 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Driver {
+  id           String   @id @default(uuid())
+  fullName     String
+  phone        String   @unique
+  licensePlate String
+  passwordHash String
+  qrPayload    String
+  createdAt    DateTime @default(now())
+
+  wallet       Wallet?
+  payments     Payment[]
+  scans        ScanTransaction[]
+}
+
+model Facilitator {
+  id           String   @id @default(uuid())
+  fullName     String
+  phone        String   @unique
+  passwordHash String
+  terminalId   String?
+  createdAt    DateTime @default(now())
+
+  terminal     Terminal?  @relation(fields: [terminalId], references: [id])
+  scans        ScanTransaction[]
+}
+
+model Admin {
+  id           String    @id @default(uuid())
+  fullName     String
+  phone        String    @unique
+  passwordHash String
+  role         AdminRole @default(OPERATOR)
+  createdAt    DateTime  @default(now())
+}
+
+enum AdminRole {
+  OPERATOR
+  MILKIWAY_ADMIN
+}
+
+model Terminal {
+  id                  String         @id @default(uuid())
+  name                String
+  locationDescription String
+  gpsLat              Float
+  gpsLng              Float
+  status              TerminalStatus @default(ACTIVE)
+  createdAt           DateTime       @default(now())
+
+  facilitators        Facilitator[]
+  scans               ScanTransaction[]
+}
+
+enum TerminalStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Wallet {
+  id           String   @id @default(uuid())
+  driverId     String   @unique
+  balanceTrips Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  driver       Driver   @relation(fields: [driverId], references: [id])
+}
+
+model TripPackage {
+  id         String    @id @default(uuid())
+  name       String
+  tripCount  Int
+  priceEtb   Decimal   @db.Decimal(10, 2)
+  isActive   Boolean   @default(true)
+
+  payments   Payment[]
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  driverId    String
+  txRef       String        @unique
+  status      PaymentStatus @default(PENDING)
+  packageId   String
+  packageSize Int
+  amountEtb   Decimal       @db.Decimal(10, 2)
+  createdAt   DateTime      @default(now())
+  processedAt DateTime?
+
+  driver      Driver        @relation(fields: [driverId], references: [id])
+  package     TripPackage   @relation(fields: [packageId], references: [id])
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model ScanTransaction {
+  id              String      @id @default(uuid())
+  driverId        String
+  facilitatorId   String
+  terminalId      String
+  idempotencyKey  String      @unique
+  status          ScanStatus
+  createdAt       DateTime    @default(now())
+
+  driver          Driver      @relation(fields: [driverId], references: [id])
+  facilitator     Facilitator @relation(fields: [facilitatorId], references: [id])
+  terminal        Terminal    @relation(fields: [terminalId], references: [id])
+}
+
+enum ScanStatus {
+  APPROVED
+  REJECTED_ZERO_BALANCE
+  REJECTED_INVALID_QR
+  REJECTED_TERMINAL_INACTIVE
+}
+
+model IdempotencyRecord {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  result    Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorId      String
+  actorRole    String
+  actionType   String
+  targetEntity String
+  targetId     String
+  metadata     Json
+  createdAt    DateTime @default(now())
+}
