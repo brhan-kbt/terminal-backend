@@ -180,4 +180,46 @@ router.get('/anomalies', auth, requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
+// GET /reports/chart-data — last 7 days trips + revenue for charts (ADMIN)
+router.get('/chart-data', auth, requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const days = 7;
+    const result = [];
+
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date();
+      date.setUTCDate(date.getUTCDate() - i);
+      const { start, end } = getDayBounds(date.toISOString().split('T')[0]);
+
+      const [trips, revenueResult, failedScans] = await Promise.all([
+        prisma.scanTransaction.count({
+          where: { status: 'APPROVED', createdAt: { gte: start, lte: end } },
+        }),
+        prisma.payment.aggregate({
+          where: { status: 'SUCCESS', createdAt: { gte: start, lte: end } },
+          _sum: { amountEtb: true },
+        }),
+        prisma.scanTransaction.count({
+          where: {
+            status: { in: ['REJECTED_ZERO_BALANCE', 'REJECTED_INVALID_QR', 'REJECTED_TERMINAL_INACTIVE'] },
+            createdAt: { gte: start, lte: end },
+          },
+        }),
+      ]);
+
+      result.push({
+        date: start.toISOString().split('T')[0],
+        label: start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        trips,
+        revenue: Number(revenueResult._sum.amountEtb ?? 0),
+        failedScans,
+      });
+    }
+
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
