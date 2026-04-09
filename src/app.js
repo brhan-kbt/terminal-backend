@@ -23,6 +23,9 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
+// Health check endpoint (used by keep-alive ping)
+app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
 // --- Routes ---
 app.use('/auth', authRouter);
 app.use('/drivers', driversRouter);
