@@ -13,6 +13,47 @@ const createFacilitatorSchema = z.object({
   terminalId: z.string().uuid().optional().nullable(),
 });
 
+// GET /facilitators/me/stats — today's scan stats for the logged-in facilitator
+router.get('/me/stats', auth, requireRole('FACILITATOR'), async (req, res, next) => {
+  try {
+    const facilitatorId = req.user.id;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const where = { facilitatorId, createdAt: { gte: todayStart, lte: todayEnd } };
+
+    const [total, approved, recent, facilitator] = await Promise.all([
+      prisma.scanTransaction.count({ where }),
+      prisma.scanTransaction.count({ where: { ...where, status: 'APPROVED' } }),
+      prisma.scanTransaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        include: { driver: { select: { fullName: true, licensePlate: true } } },
+      }),
+      prisma.facilitator.findUnique({
+        where: { id: facilitatorId },
+        select: { fullName: true, phone: true, terminal: { select: { name: true, locationDescription: true } } },
+      }),
+    ]);
+
+    res.json({
+      facilitator: {
+        fullName: facilitator?.fullName,
+        phone: facilitator?.phone,
+        terminalName: facilitator?.terminal?.name ?? null,
+        terminalLocation: facilitator?.terminal?.locationDescription ?? null,
+      },
+      stats: { total, approved, rejected: total - approved },
+      recentScans: recent,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // POST /facilitators — create facilitator (ADMIN)
 router.post('/', auth, requireRole('ADMIN'), validate(createFacilitatorSchema), async (req, res, next) => {
   try {

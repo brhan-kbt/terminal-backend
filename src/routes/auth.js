@@ -122,7 +122,10 @@ router.post('/drivers/login', loginRateLimiter, validate(loginSchema), async (re
 router.post('/facilitators/login', loginRateLimiter, validate(loginSchema), async (req, res, next) => {
   try {
     const { phone, password } = req.body;
-    const facilitator = await prisma.facilitator.findUnique({ where: { phone } });
+    const facilitator = await prisma.facilitator.findUnique({
+      where: { phone },
+      include: { terminal: { select: { id: true, name: true } } },
+    });
 
     if (!facilitator) return res.status(401).json({ error: 'Invalid credentials' });
 
@@ -142,6 +145,7 @@ router.post('/facilitators/login', loginRateLimiter, validate(loginSchema), asyn
         fullName: facilitator.fullName,
         phone: facilitator.phone,
         terminalId: facilitator.terminalId,
+        terminalName: facilitator.terminal?.name ?? null,
       },
     });
   } catch (err) {
