@@ -180,40 +180,85 @@ router.get('/anomalies', auth, requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-// GET /reports/chart-data — last 7 days trips + revenue for charts (ADMIN)
+// GET /reports/chart-data — trips + revenue for charts, supports startDate/endDate (ADMIN)
 router.get('/chart-data', auth, requireRole('ADMIN'), async (req, res, next) => {
   try {
-    const days = 7;
     const result = [];
 
-    for (let i = days - 1; i >= 0; i--) {
-      const date = new Date();
-      date.setUTCDate(date.getUTCDate() - i);
-      const { start, end } = getDayBounds(date.toISOString().split('T')[0]);
+    if (req.query.startDate && req.query.endDate) {
+      // Custom date range — iterate each day between startDate and endDate
+      const start = new Date(req.query.startDate);
+      const end   = new Date(req.query.endDate);
+      start.setUTCHours(0, 0, 0, 0);
+      end.setUTCHours(23, 59, 59, 999);
 
-      const [trips, revenueResult, failedScans] = await Promise.all([
-        prisma.scanTransaction.count({
-          where: { status: 'APPROVED', createdAt: { gte: start, lte: end } },
-        }),
-        prisma.payment.aggregate({
-          where: { status: 'SUCCESS', createdAt: { gte: start, lte: end } },
-          _sum: { amountEtb: true },
-        }),
-        prisma.scanTransaction.count({
-          where: {
-            status: { in: ['REJECTED_ZERO_BALANCE', 'REJECTED_INVALID_QR', 'REJECTED_TERMINAL_INACTIVE'] },
-            createdAt: { gte: start, lte: end },
-          },
-        }),
-      ]);
+      // Build day-by-day array (cap at 60 days to avoid huge queries)
+      const current = new Date(start);
+      let dayCount = 0;
+      while (current <= end && dayCount < 60) {
+        const dayStart = new Date(current);
+        dayStart.setUTCHours(0, 0, 0, 0);
+        const dayEnd = new Date(current);
+        dayEnd.setUTCHours(23, 59, 59, 999);
 
-      result.push({
-        date: start.toISOString().split('T')[0],
-        label: start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        trips,
-        revenue: Number(revenueResult._sum.amountEtb ?? 0),
-        failedScans,
-      });
+        const [trips, revenueResult, failedScans] = await Promise.all([
+          prisma.scanTransaction.count({
+            where: { status: 'APPROVED', createdAt: { gte: dayStart, lte: dayEnd } },
+          }),
+          prisma.payment.aggregate({
+            where: { status: 'SUCCESS', createdAt: { gte: dayStart, lte: dayEnd } },
+            _sum: { amountEtb: true },
+          }),
+          prisma.scanTransaction.count({
+            where: {
+              status: { in: ['REJECTED_ZERO_BALANCE', 'REJECTED_INVALID_QR', 'REJECTED_TERMINAL_INACTIVE'] },
+              createdAt: { gte: dayStart, lte: dayEnd },
+            },
+          }),
+        ]);
+
+        result.push({
+          date: dayStart.toISOString().split('T')[0],
+          label: dayStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          trips,
+          revenue: Number(revenueResult._sum.amountEtb ?? 0),
+          failedScans,
+        });
+
+        current.setUTCDate(current.getUTCDate() + 1);
+        dayCount++;
+      }
+    } else {
+      // Default: last 7 days
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setUTCDate(date.getUTCDate() - i);
+        const { start, end } = getDayBounds(date.toISOString().split('T')[0]);
+
+        const [trips, revenueResult, failedScans] = await Promise.all([
+          prisma.scanTransaction.count({
+            where: { status: 'APPROVED', createdAt: { gte: start, lte: end } },
+          }),
+          prisma.payment.aggregate({
+            where: { status: 'SUCCESS', createdAt: { gte: start, lte: end } },
+            _sum: { amountEtb: true },
+          }),
+          prisma.scanTransaction.count({
+            where: {
+              status: { in: ['REJECTED_ZERO_BALANCE', 'REJECTED_INVALID_QR', 'REJECTED_TERMINAL_INACTIVE'] },
+              createdAt: { gte: start, lte: end },
+            },
+          }),
+        ]);
+
+        result.push({
+          date: start.toISOString().split('T')[0],
+          label: start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          trips,
+          revenue: Number(revenueResult._sum.amountEtb ?? 0),
+          failedScans,
+        });
+      }
     }
 
     res.json({ data: result });
