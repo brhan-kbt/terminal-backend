@@ -47,6 +47,30 @@ router.post('/', auth, requireRole('FACILITATOR'), validate(scanSchema), async (
     });
   }
 
+  // Step 1b: Verify the QR payload matches the driver's CURRENT stored qrPayload.
+  // This invalidates old QR codes after regeneration.
+  const driverForQrCheck = await prisma.driver.findUnique({
+    where: { id: driverId },
+    select: { qrPayload: true },
+  });
+  if (!driverForQrCheck || driverForQrCheck.qrPayload !== qrPayload) {
+    await prisma.auditLog.create({
+      data: {
+        actorId: facilitatorId,
+        actorRole: 'FACILITATOR',
+        actionType: 'SCAN_REJECTED_INVALID_QR',
+        targetEntity: 'Driver',
+        targetId: driverId,
+        metadata: { idempotencyKey, terminalId, reason: 'QR_REVOKED' },
+      },
+    }).catch(() => {});
+    return res.status(404).json({
+      status: 'REJECTED',
+      reason: 'DRIVER_NOT_FOUND',
+      message: 'QR Code Revoked — Please show updated QR',
+    });
+  }
+
   // Step 2: Check idempotency record (already processed)
   const existing = await prisma.idempotencyRecord.findUnique({
     where: { key: idempotencyKey },
