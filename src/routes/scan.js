@@ -64,10 +64,10 @@ router.post('/', auth, requireRole('FACILITATOR'), validate(scanSchema), async (
         metadata: { idempotencyKey, terminalId, reason: 'QR_REVOKED' },
       },
     }).catch(() => {});
-    return res.status(404).json({
+    return res.status(410).json({
       status: 'REJECTED',
-      reason: 'DRIVER_NOT_FOUND',
-      message: 'QR Code Revoked — Please show updated QR',
+      reason: 'QR_REVOKED',
+      message: 'QR Code Revoked — Driver must show updated QR',
     });
   }
 
