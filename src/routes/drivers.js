@@ -1,7 +1,23 @@
 const router = require('express').Router();
+const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/requireRole');
+
+function generateQrPayload(driverId) {
+  return jwt.sign({ driverId }, process.env.QR_SECRET, { expiresIn: '24h' });
+}
+
+// POST /drivers/me/regenerate-qr — regenerate QR for logged-in driver
+router.post('/me/regenerate-qr', auth, requireRole('DRIVER'), async (req, res, next) => {
+  try {
+    const qrPayload = generateQrPayload(req.user.id);
+    await prisma.driver.update({ where: { id: req.user.id }, data: { qrPayload } });
+    res.json({ qrPayload });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET /drivers/me — driver's own profile + wallet balance
 router.get('/me', auth, requireRole('DRIVER'), async (req, res, next) => {
